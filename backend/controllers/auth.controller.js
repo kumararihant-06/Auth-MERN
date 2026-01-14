@@ -2,6 +2,7 @@ import { User } from "../models/user.model.js"
 import bcrypt from 'bcryptjs';
 import { generateVerificationToken } from "../utils/generateVerificationToken.js";
 import { generateTokenAndSetCookie } from "../utils/generateTokenAndSetCookie.js";
+import { sendVerificationEmail, sendWelcomeEmail } from "../utils/emails.js";
 
 export const signup = async (req,res) => {
     const {email,password,name} = req.body;
@@ -11,7 +12,7 @@ export const signup = async (req,res) => {
         }
         const userAlreadyExists = await User.findOne({email});
         if(userAlreadyExists){
-            res.status(400).json({
+            return res.status(400).json({
                 success: false,
                 message:"User already exists."
             })
@@ -30,6 +31,9 @@ export const signup = async (req,res) => {
 
         //jwt 
         generateTokenAndSetCookie(res, user._id);
+
+        await sendVerificationEmail(user.email,verificationToken);
+
         res.status(201).json({
             success:true,
             message: "User created Successfully.",
@@ -39,9 +43,45 @@ export const signup = async (req,res) => {
             }
         })
     } catch (error) {
-        res.status(400).json({success: false, message: error.message});
+        res.status(400).json({success: false, message:`an error occurred ${error}`});
         
     }
+}
+
+export const verifyEmail = async (req,res) => {
+    const {code} = req.body;
+
+    try {
+        const user = await User.findOne({
+        verificationToken: code,
+        verificationTokenExpiresAt: {$gt: Date.now() }
+    })
+
+    console.log(user);
+
+    if(!user){
+        return res.status(400).json({
+            success: false,
+            message: "Invalid or expired verification code."
+        })
+    }
+    user.isVerified = true;
+    user.verificationToken = undefined;
+    user.verificationTokenExpiresAt = undefined;
+    await user.save();
+
+    await sendWelcomeEmail(user.email, user.name);
+
+    res.status(201).json({
+        success: true,
+        message: "Welcome E-mail sent successfully."
+    })
+
+    } catch (error) {
+        console.log("Email verification failed, an error occurred: ",error);
+        res.status(400).json({success: false, message:`Email verification failed: ${error.message}`});
+    }
+
 }
 
 export const login = async (req,res) => {
